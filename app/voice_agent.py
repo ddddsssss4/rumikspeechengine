@@ -74,6 +74,7 @@ async def run_voice_agent(url: str, token: str, room_name: str):
         params=LiveKitParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            subscribe_all_participants=True,  # Auto-subscribe to user's mic track
         ),
     )
 
@@ -137,10 +138,19 @@ async def run_voice_agent(url: str, token: str, room_name: str):
     # Greet the user when they join
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant_id):
+        logger.info(f"[BOT] First participant joined: {participant_id}")
         await asyncio.sleep(1)
         await worker.queue_frame(
             TTSSpeakFrame("Hello there! I am your AI assistant. How can I help you today?")
         )
+
+    @transport.event_handler("on_participant_joined")
+    async def on_participant_joined(transport, participant_id):
+        logger.info(f"[BOT] Participant joined room: {participant_id}")
+
+    @transport.event_handler("on_participant_left")
+    async def on_participant_left(transport, participant_id):
+        logger.info(f"[BOT] Participant left room: {participant_id}")
 
     # Handle text chat messages from the LiveKit room
     @transport.event_handler("on_data_received")

@@ -34,11 +34,17 @@ export default function Home() {
       const data = await res.json();
       const newRoom = new Room();
 
-      // Listen for remote tracks (Pipecat TTS audio)
+      // Debug: confirm bot's audio track arrives
       newRoom.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+        console.log('[LiveKit] TrackSubscribed:', track.kind, track.sid);
         if (track.kind === Track.Kind.Audio && audioRef.current) {
           track.attach(audioRef.current);
         }
+      });
+
+      // Debug: confirm our mic was published
+      newRoom.on(RoomEvent.LocalTrackPublished, (pub) => {
+        console.log('[LiveKit] LocalTrackPublished:', pub.kind, pub.trackSid);
       });
 
       newRoom.on(RoomEvent.Disconnected, () => {
@@ -48,9 +54,14 @@ export default function Home() {
 
       await newRoom.connect(data.server_url, data.participant_token);
 
-      // Publish microphone
+      // Required by Chrome: start audio context after user gesture
+      await newRoom.startAudio();
+
+      // Publish microphone — explicitly unmuted so the bot receives audio
       const micTrack = await createLocalAudioTrack();
+      await micTrack.setMuted(false);
       await newRoom.localParticipant.publishTrack(micTrack);
+      console.log('[LiveKit] Mic published, muted:', micTrack.isMuted);
 
       setRoom(newRoom);
       setStatus('connected');
