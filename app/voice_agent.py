@@ -26,6 +26,7 @@ from pipecat.services.whisper.stt import WhisperSTTServiceMLX
 from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
 from pipecat.workers.runner import WorkerRunner
 from pipecat_rumik import RumikTTSService
+from pipecat.services.kokoro.tts import KokoroTTSService
 
 load_dotenv(override=True)
 
@@ -34,13 +35,22 @@ logger.add(sys.stderr, level="DEBUG")
 
 # Muga tone-tag system prompt — tells the LLM to format output
 # so Rumik's Muga voice model can apply the right emotion.
-SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud using the Silk Muga 1 text-to-speech model.
+# SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud using the Silk Muga 1 text-to-speech model.
+# 
+# Rules:
+# - Output only the final tagged text, no markdown or notes.
+# - Romanised Hinglish only (Latin script). Never Devanagari.
+# - Start every paragraph with one tone tag, as the first token:
+#   [happy], [excited], [sad], [angry], [neutral], [whisper].
+# - Keep replies short: 1 to 2 sentences.
+# - Respond to what the user said in a creative, helpful, and brief way.
+# - Avoid emojis, bullet points, or other formatting that can't be spoken."""
+
+# Standard prompt for Kokoro English TTS
+SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud.
 
 Rules:
-- Output only the final tagged text, no markdown or notes.
-- Romanised Hinglish only (Latin script). Never Devanagari.
-- Start every paragraph with one tone tag, as the first token:
-  [happy], [excited], [sad], [angry], [neutral], [whisper].
+- Output only the final spoken text, no markdown, asterisks, or notes.
 - Keep replies short: 1 to 2 sentences.
 - Respond to what the user said in a creative, helpful, and brief way.
 - Avoid emojis, bullet points, or other formatting that can't be spoken."""
@@ -83,10 +93,17 @@ async def run_voice_agent(url: str, token: str, room_name: str):
     )
 
     # --- TTS: Rumik AI (Muga voice) ---
-    tts = RumikTTSService(
-        api_key=os.environ["RUMIK_API_KEY"],
-        gateway_url=os.environ["RUMIK_GATEWAY_URL"],
-        settings=RumikTTSService.Settings(model="muga"),
+    # rumik_tts = RumikTTSService(
+    #     api_key=os.environ["RUMIK_API_KEY"],
+    #     gateway_url=os.environ["RUMIK_GATEWAY_URL"],
+    #     settings=RumikTTSService.Settings(model="muga"),
+    # )
+
+    # --- TTS: Kokoro Local TTS ---
+    tts = KokoroTTSService(
+        settings=KokoroTTSService.Settings(
+            voice="af_heart",
+        )
     )
 
     # --- Context management ---
@@ -122,7 +139,7 @@ async def run_voice_agent(url: str, token: str, room_name: str):
     async def on_first_participant_joined(transport, participant_id):
         await asyncio.sleep(1)
         await worker.queue_frame(
-            TTSSpeakFrame("[happy] Hello! Main aapka AI assistant hoon. Kaise madad kar sakta hoon?")
+            TTSSpeakFrame("Hello there! I am your AI assistant. How can I help you today?")
         )
 
     # Handle text chat messages from the LiveKit room
