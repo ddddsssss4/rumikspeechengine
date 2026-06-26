@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     InterruptionFrame,
     TranscriptionFrame,
@@ -97,7 +98,9 @@ async def run_voice_agent(url: str, token: str, room_name: str):
 
     # --- STT: Local Whisper on Apple Silicon ---
     stt = WhisperSTTServiceMLX(
-        settings=WhisperSTTServiceMLX.Settings(model="small"),
+        settings=WhisperSTTServiceMLX.Settings(
+            model="mlx-community/whisper-small-mlx-q4",  # MLX-native quantised model
+        ),
     )
 
     # --- LLM: Local via LM Studio (OpenAI-compatible API) ---
@@ -128,7 +131,16 @@ async def run_voice_agent(url: str, token: str, room_name: str):
     context = LLMContext()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(
+                    confidence=0.4,   # Default 0.7 is too strict for browser WebRTC
+                    min_volume=0.3,   # Default 0.6 is way too high for browser mic
+                    start_secs=0.2,
+                    stop_secs=0.8,    # Give more time after speech ends
+                )
+            )
+        ),
     )
 
     # --- Pipeline: mic → STT → LLM → TTS → speaker ---
@@ -174,8 +186,8 @@ async def run_voice_agent(url: str, token: str, room_name: str):
         logger.info(f"[BOT] Participant joined room: {participant_id}")
 
     @transport.event_handler("on_participant_left")
-    async def on_participant_left(transport, participant_id):
-        logger.info(f"[BOT] Participant left room: {participant_id}")
+    async def on_participant_left(transport, participant_id, reason):
+        logger.info(f"[BOT] Participant left room: {participant_id} (reason: {reason})")
 
     # Handle text chat messages from the LiveKit room
     @transport.event_handler("on_data_received")
