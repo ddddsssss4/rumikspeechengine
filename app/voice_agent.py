@@ -22,7 +22,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.whisper import WhisperSTTServiceMLX
+from pipecat.services.whisper.stt import WhisperSTTServiceMLX
 from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
 from pipecat.workers.runner import WorkerRunner
 from pipecat_rumik import RumikTTSService

@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]>=0.138.0",
-    "pipecat-ai[silero,livekit,openai,mlx-whisper]",
+    "pipecat-ai[silero,livekit,openai,whisper,mlx-whisper]",
     "pipecat-rumik",
     "livekit-api",
     "python-dotenv",
