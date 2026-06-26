@@ -87,7 +87,7 @@ async def run_voice_agent(url: str, token: str, room_name: str):
         api_key="local",  # LM Studio doesn't require a real key
         base_url=os.environ.get("LM_STUDIO_BASE_URL", "http://localhost:1234/v1"),
         settings=OpenAILLMService.Settings(
-            model=os.environ.get("LM_STUDIO_MODEL", "default"),
+            model=os.environ.get("LM_STUDIO_MODEL", "google/gemma-4-e4b"),
             system_instruction=SYSTEM_PROMPT,
         ),
     )
