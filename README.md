@@ -7,6 +7,8 @@ NeuralEngine is a WebRTC-powered voice assistant that runs entirely on your loca
 
 The frontend provides a sleek, brutalist, and creamy document-style UI that visualizes audio waveforms and displays live transcriptions of the conversation in real-time.
 
+![NeuralEngine UI](image.png)
+
 ## 🤖 Models & Stack
 
 This project prioritizes speed and local privacy by utilizing the following stack:
