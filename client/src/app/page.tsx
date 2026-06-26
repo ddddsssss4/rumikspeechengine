@@ -54,14 +54,10 @@ export default function Home() {
 
       await newRoom.connect(data.server_url, data.participant_token);
 
-      // Required by Chrome: start audio context after user gesture
-      await newRoom.startAudio();
-
-      // Publish microphone — explicitly unmuted so the bot receives audio
+      // Publish microphone
       const micTrack = await createLocalAudioTrack();
-      await micTrack.setMuted(false);
       await newRoom.localParticipant.publishTrack(micTrack);
-      console.log('[LiveKit] Mic published, muted:', micTrack.isMuted);
+      console.log('[LiveKit] Mic published');
 
       setRoom(newRoom);
       setStatus('connected');
