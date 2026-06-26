@@ -9,11 +9,21 @@ from loguru import logger
 from pydantic import BaseModel
 from typing import Dict, Optional
 
+from contextlib import asynccontextmanager
+
+from app.preload import preload_models
 from app.voice_agent import run_voice_agent
 
 load_dotenv(override=True)
 
-app = FastAPI(title="NeuralEngine Voice Agent")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Preload models before accepting traffic
+    preload_models()
+    yield
+    # Cleanup on shutdown (if needed)
+
+app = FastAPI(title="NeuralEngine Voice Agent", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

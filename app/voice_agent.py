@@ -57,21 +57,7 @@ Rules:
 - Avoid emojis, bullet points, or other formatting that can't be spoken."""
 
 
-async def _warmup_whisper(stt: WhisperSTTServiceMLX):
-    """Pre-load the Whisper MLX model so first-utterance latency is low.
 
-    Runs a single transcription on a tiny block of silence. This forces
-    the model weights to be loaded and compiled on the Apple Silicon Neural
-    Engine before the user actually speaks.
-    """
-    try:
-        import numpy as np
-        # 0.5 s of silence at 16 kHz
-        silence = (np.zeros(8000, dtype=np.float32) * 32768).astype(np.int16).tobytes()
-        await stt._client.transcribe(silence, language="en")
-        logger.info("[BOT] Whisper MLX warmup complete ✅")
-    except Exception as e:
-        logger.warning(f"[BOT] Whisper warmup skipped (non-fatal): {e}")
 
 
 async def run_voice_agent(url: str, token: str, room_name: str):
@@ -168,10 +154,6 @@ async def run_voice_agent(url: str, token: str, room_name: str):
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant_id):
         logger.info(f"[BOT] First participant joined: {participant_id}")
-        # Warm up Whisper MLX by running a silent transcription
-        # so the model is already loaded before the user speaks
-        logger.info("[BOT] Warming up Whisper MLX model...")
-        asyncio.create_task(_warmup_whisper(stt))
         await asyncio.sleep(1)
         await worker.queue_frame(
             TTSSpeakFrame("Hello there! I am your AI assistant. How can I help you today?")
