@@ -16,7 +16,9 @@ This project prioritizes speed and local privacy by utilizing the following stac
 - **VAD (Voice Activity Detection)**: **Silero VAD v5** intelligently detects when you start and stop speaking.
 - **STT (Speech-to-Text)**: **Whisper MLX** (`mlx-community/whisper-small-mlx-q4`) running natively on Apple Silicon for near-instant transcription.
 - **LLM (Reasoning)**: **LM Studio** serving fast local models (e.g., `Qwen1.5-0.5b-chat` or `Llama-3.2-1B-Instruct`) via an OpenAI-compatible API.
-- **TTS (Text-to-Speech)**: **Kokoro TTS** (voice: `af_heart`) running locally to synthesize the agent's responses dynamically.
+- **TTS (Text-to-Speech)**: Features a dynamic client-side toggle to switch between two services:
+  - **Kokoro TTS** (voice: `af_heart`): Runs completely locally for fast, on-device synthesis.
+  - **Rumik AI** (voice: `Muga`): Uses the `pipecat_rumik` plugin to generate emotionally expressive speech dynamically steered by LLM tone tags (e.g., `[happy]`, `[whisper]`).
 
 ## 🏗️ Architecture Flow
 
@@ -25,11 +27,11 @@ The following diagram illustrates the complete end-to-end data flow from the mom
 ```mermaid
 sequenceDiagram
     participant User
-    participant Frontend as Next.js Frontend
-    participant Backend as FastAPI Backend
-    participant LiveKit as LiveKit Server
-    participant Pipecat as Pipecat Pipeline
-    participant Models as Local Models (Whisper, LM Studio, Kokoro)
+    participant Frontend as "Next.js Frontend"
+    participant Backend as "FastAPI Backend"
+    participant LiveKit as "LiveKit Server"
+    participant Pipecat as "Pipecat Pipeline"
+    participant Models as "Local Models (Whisper, LM Studio, Kokoro/Rumik)"
 
     User->>Frontend: Clicks "Call Now"
     Frontend->>Backend: POST /api/token
@@ -49,7 +51,7 @@ sequenceDiagram
         Pipecat->>Models: Whisper MLX (Audio -> Text)
         Pipecat->>LiveKit: Emit TranscriptionReceived (User text)
         Pipecat->>Models: LLM via LM Studio (Context -> Streamed Text)
-        Pipecat->>Models: Kokoro TTS (Streamed Text -> Audio)
+        Pipecat->>Models: Kokoro/Rumik TTS (Streamed Text -> Audio)
         Pipecat->>LiveKit: Emit TranscriptionReceived (Agent text)
     end
     
