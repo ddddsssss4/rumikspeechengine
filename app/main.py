@@ -40,6 +40,7 @@ class TokenRequest(BaseModel):
     participant_metadata: Optional[str] = None
     participant_attributes: Optional[Dict[str, str]] = None
     room_config: Optional[dict] = None
+    tts_service: Optional[str] = "kokoro"
 
 
 def _generate_bot_token(room_name: str) -> str:
@@ -116,6 +117,7 @@ async def get_token(request: TokenRequest, background_tasks: BackgroundTasks):
             url=server_url,
             token=bot_token,
             room_name=room_name,
+            tts_service_type=request.tts_service,
         )
         logger.info(f"Voice agent spawned for room: {room_name}")
 

@@ -36,19 +36,19 @@ logger.add(sys.stderr, level="DEBUG")
 
 # Muga tone-tag system prompt — tells the LLM to format output
 # so Rumik's Muga voice model can apply the right emotion.
-# SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud using the Silk Muga 1 text-to-speech model.
-# 
-# Rules:
-# - Output only the final tagged text, no markdown or notes.
-# - Romanised Hinglish only (Latin script). Never Devanagari.
-# - Start every paragraph with one tone tag, as the first token:
-#   [happy], [excited], [sad], [angry], [neutral], [whisper].
-# - Keep replies short: 1 to 2 sentences.
-# - Respond to what the user said in a creative, helpful, and brief way.
-# - Avoid emojis, bullet points, or other formatting that can't be spoken."""
+RUMIK_SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud using the Silk Muga 1 text-to-speech model.
+
+Rules:
+- Output only the final tagged text, no markdown or notes.
+- Romanised Hinglish only (Latin script). Never Devanagari.
+- Start every paragraph with one tone tag, as the first token:
+  [happy], [excited], [sad], [angry], [neutral], [whisper].
+- Keep replies short: 1 to 2 sentences.
+- Respond to what the user said in a creative, helpful, and brief way.
+- Avoid emojis, bullet points, or other formatting that can't be spoken."""
 
 # Standard prompt for Kokoro English TTS
-SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud.
+KOKORO_SYSTEM_PROMPT = """You are a helpful voice assistant. Your responses will be spoken aloud.
 
 Rules:
 - Output only the final spoken text, no markdown, asterisks, or notes.
@@ -59,8 +59,7 @@ Rules:
 
 
 
-
-async def run_voice_agent(url: str, token: str, room_name: str):
+async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type: str = "kokoro"):
     """Start and run the voice agent pipeline in a LiveKit room.
 
     Args:
@@ -86,31 +85,36 @@ async def run_voice_agent(url: str, token: str, room_name: str):
     stt = WhisperSTTServiceMLX(
         settings=WhisperSTTServiceMLX.Settings(
             model="mlx-community/whisper-small-mlx-q4",  # MLX-native quantised model
-        ),
+        )
     )
+
+    # Choose TTS and Prompt
+    tts_service_type = tts_service_type.lower()
+    if tts_service_type == "rumik":
+        system_prompt = RUMIK_SYSTEM_PROMPT
+        tts = RumikTTSService(
+            api_key=os.environ["RUMIK_API_KEY"],
+            gateway_url=os.environ["RUMIK_GATEWAY_URL"],
+            settings=RumikTTSService.Settings(model="muga"),
+        )
+        logger.info("[BOT] Using Rumik TTS")
+    else:
+        system_prompt = KOKORO_SYSTEM_PROMPT
+        tts = KokoroTTSService(
+            settings=KokoroTTSService.Settings(
+                voice="af_heart",
+            )
+        )
+        logger.info("[BOT] Using Kokoro TTS")
 
     # --- LLM: Local via LM Studio (OpenAI-compatible API) ---
     llm = OpenAILLMService(
         api_key="local",  # LM Studio doesn't require a real key
         base_url=os.environ.get("LM_STUDIO_BASE_URL", "http://localhost:1234/v1"),
         settings=OpenAILLMService.Settings(
-            model=os.environ.get("LM_STUDIO_MODEL", "google/gemma-4-e4b"),
-            system_instruction=SYSTEM_PROMPT,
+            model=os.environ.get("LM_STUDIO_MODEL", "qwen1.5-0.5b-chat"),
+            system_instruction=system_prompt,
         ),
-    )
-
-    # --- TTS: Rumik AI (Muga voice) ---
-    # rumik_tts = RumikTTSService(
-    #     api_key=os.environ["RUMIK_API_KEY"],
-    #     gateway_url=os.environ["RUMIK_GATEWAY_URL"],
-    #     settings=RumikTTSService.Settings(model="muga"),
-    # )
-
-    # --- TTS: Kokoro Local TTS ---
-    tts = KokoroTTSService(
-        settings=KokoroTTSService.Settings(
-            voice="af_heart",
-        )
     )
 
     # --- Context management ---
@@ -123,7 +127,7 @@ async def run_voice_agent(url: str, token: str, room_name: str):
                     confidence=0.4,   # Default 0.7 is too strict for browser WebRTC
                     min_volume=0.3,   # Default 0.6 is way too high for browser mic
                     start_secs=0.2,
-                    stop_secs=0.8,    # Give more time after speech ends
+                    stop_secs=0.2,    # Revert to 0.2s so TurnAnalyzer doesn't time out
                 )
             )
         ),
@@ -149,6 +153,37 @@ async def run_voice_agent(url: str, token: str, room_name: str):
             enable_usage_metrics=True,
         ),
     )
+
+    @worker.event_handler("on_frame")
+    async def handle_frames(worker, frame):
+        if isinstance(frame, TranscriptionFrame):
+            # Get the LiveKit room
+            room = transport._client.room
+
+            if room:
+                await room.local_participant.send_text(
+                    frame.text,
+                    topic="lk.transcription",
+                    attributes={
+                        "lk.transcribed_track_id": frame.user_id,
+                        "lk.transcription_final": "true",
+                    },
+                )
+
+    @worker.event_handler("on_frame")
+    async def handle_agent_speech(worker, frame):
+        if isinstance(frame, TTSSpeakFrame):
+            room = transport._client.room
+
+            if room:
+                await room.local_participant.send_text(
+                    frame.text,
+                    topic="lk.transcription",
+                    attributes={
+                        "lk.transcribed_track_id": "voice-agent-bot",
+                        "lk.transcription_final": "true",
+                    },
+                )
 
     # Greet the user when they join and warm up Whisper
     @transport.event_handler("on_first_participant_joined")
