@@ -154,7 +154,7 @@ async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type
     # --- STT: Local Whisper on Apple Silicon ---
     stt = WhisperSTTServiceMLX(
         settings=WhisperSTTServiceMLX.Settings(
-            model="mlx-community/whisper-small-mlx-q4",  # MLX-native quantised model
+            model="mlx-community/distil-whisper-medium.en",  # MLX-native quantised model
         )
     )
 

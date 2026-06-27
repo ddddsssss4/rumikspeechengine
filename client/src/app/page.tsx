@@ -242,7 +242,7 @@ export default function Home() {
                       </div>
                       <div className={`
                         px-5 py-3 text-lg font-medium leading-relaxed max-w-[85%] text-black border-2 border-black
-                        ${t.isAgent ? 'rounded-2xl rounded-tl-sm bg-white' : 'rounded-2xl rounded-tr-sm bg-black text-[#f4f1eb]'}
+                        ${t.isAgent ? 'rounded-2xl rounded-tl-sm bg-white' : 'rounded-2xl rounded-tr-sm bg-black text-white'}
                         ${!t.isFinal ? 'opacity-70 animate-pulse' : 'opacity-100'}
                       `}>
                         {t.text}

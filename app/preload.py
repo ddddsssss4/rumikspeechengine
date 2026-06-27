@@ -23,7 +23,7 @@ def preload_models():
         from huggingface_hub import snapshot_download
         # We explicitly download the MLX Whisper repository to cache
         # because Pipecat's MLX service uses lazy-loading and ignores downloads on init
-        snapshot_download(repo_id="mlx-community/whisper-small-mlx-q4")
+        snapshot_download(repo_id="mlx-community/distil-whisper-medium.en")
         
         logger.info("[SYSTEM] ✅ All AI models loaded successfully!")
     except Exception as e:
