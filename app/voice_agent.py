@@ -10,6 +10,9 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     InterruptionFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    LLMTextFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
     UserStartedSpeakingFrame,
@@ -154,12 +157,15 @@ async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type
         ),
     )
 
-    @worker.event_handler("on_frame")
-    async def handle_frames(worker, frame):
-        if isinstance(frame, TranscriptionFrame):
-            # Get the LiveKit room
-            room = transport._client.room
+    # Mutable state for the current LLM streaming response.
+    # Using a dict so nested async handlers can mutate without `nonlocal`.
+    _llm_state: dict = {"writer": None}
 
+    @worker.event_handler("on_frame")
+    async def handle_user_transcription(worker, frame):
+        """Forward STT output (user speech) to the LiveKit room as a text stream."""
+        if isinstance(frame, TranscriptionFrame):
+            room = transport._client.room
             if room:
                 await room.local_participant.send_text(
                     frame.text,
@@ -167,23 +173,48 @@ async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type
                     attributes={
                         "lk.transcribed_track_id": frame.user_id,
                         "lk.transcription_final": "true",
+                        "speaker": "user",
                     },
                 )
 
     @worker.event_handler("on_frame")
-    async def handle_agent_speech(worker, frame):
-        if isinstance(frame, TTSSpeakFrame):
-            room = transport._client.room
+    async def handle_llm_streaming(worker, frame):
+        """Stream LLM token output to the LiveKit room in real-time.
 
-            if room:
-                await room.local_participant.send_text(
-                    frame.text,
-                    topic="lk.transcription",
-                    attributes={
-                        "lk.transcribed_track_id": "voice-agent-bot",
-                        "lk.transcription_final": "true",
-                    },
-                )
+        Flow:
+          LLMFullResponseStartFrame → open a TextStreamWriter
+          LLMTextFrame              → write each token chunk into the open stream
+          LLMFullResponseEndFrame   → close the stream (client marks it final)
+        """
+        room = transport._client.room
+        if not room:
+            return
+
+        if isinstance(frame, LLMFullResponseStartFrame):
+            # Open a persistent stream; the same stream ID is used for all chunks
+            # so the client can update a single bubble incrementally.
+            writer = room.local_participant.stream_text(
+                topic="lk.transcription",
+                attributes={
+                    "lk.transcription_final": "false",
+                    "speaker": "agent",
+                },
+            )
+            _llm_state["writer"] = writer
+            logger.debug("[BOT] Opened LLM text stream to LiveKit room")
+
+        elif isinstance(frame, LLMTextFrame):
+            writer = _llm_state.get("writer")
+            if writer is not None:
+                await writer.write(frame.text)
+
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            writer = _llm_state.get("writer")
+            if writer is not None:
+                await writer.aclose()
+                _llm_state["writer"] = None
+                logger.debug("[BOT] Closed LLM text stream")
+
 
     # Greet the user when they join and warm up Whisper
     @transport.event_handler("on_first_participant_joined")
