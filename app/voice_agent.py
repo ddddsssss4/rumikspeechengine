@@ -104,15 +104,17 @@ class TranscriptionObserver(BaseObserver):
         elif isinstance(frame, LLMFullResponseStartFrame):
             # Open one persistent TextStreamWriter; all token chunks share the
             # same stream ID so the client updates a single bubble incrementally.
-            writer = room.local_participant.stream_text(
-                topic="lk.transcription",
-                attributes={
-                    "lk.transcription_final": "false",
-                    "speaker": "agent",
-                },
-            )
-            self._llm_state["writer"] = writer
-            logger.debug("[Observer] Opened LLM text stream")
+            # Only open if not already opened (since observers see frames multiple times as they pass through pipeline processors)
+            if self._llm_state.get("writer") is None:
+                writer = await room.local_participant.stream_text(
+                    topic="lk.transcription",
+                    attributes={
+                        "lk.transcription_final": "false",
+                        "speaker": "agent",
+                    },
+                )
+                self._llm_state["writer"] = writer
+                logger.debug("[Observer] Opened LLM text stream")
 
         elif isinstance(frame, LLMTextFrame):
             writer = self._llm_state.get("writer")
