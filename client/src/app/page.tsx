@@ -66,32 +66,35 @@ export default function Home() {
 
       newRoom.registerTextStreamHandler('lk.transcription', async (reader, participant) => {
         try {
-          const text = await reader.readAll();
-          const isFinal = reader.info.attributes?.['lk.transcription_final'] === 'true';
           const segmentId = reader.info.id || Math.random().toString(36).substring(7);
-          
+          // Use the explicit speaker attribute — both user & agent streams are sent
+          // by the bot participant, so participant.identity alone cannot distinguish them.
+          const isAgent = reader.info.attributes?.['speaker'] === 'agent';
+          const isFinalStream = reader.info.attributes?.['lk.transcription_final'] !== 'false';
+
+          // Add an empty placeholder immediately so the bubble appears as soon
+          // as the stream opens (no pop-in after the full text arrives).
           setTranscripts(prev => {
-            const newTranscripts = [...prev];
-            const isAgent = participant?.identity !== 'user';
-            const existingIdx = newTranscripts.findIndex(t => t.id === segmentId);
-            
-            if (existingIdx >= 0) {
-              newTranscripts[existingIdx] = {
-                id: segmentId,
-                text,
-                isAgent,
-                isFinal
-              };
-            } else {
-              newTranscripts.push({
-                id: segmentId,
-                text,
-                isAgent,
-                isFinal
-              });
-            }
-            return newTranscripts;
+            if (prev.some(t => t.id === segmentId)) return prev;
+            return [...prev, { id: segmentId, text: '', isAgent, isFinal: false }];
           });
+
+          // Iterate chunks as they arrive from the LiveKit TextStreamReader
+          // so the bubble grows token-by-token in real-time.
+          for await (const chunk of reader) {
+            setTranscripts(prev =>
+              prev.map(t =>
+                t.id === segmentId ? { ...t, text: t.text + chunk } : t
+              )
+            );
+          }
+
+          // Stream is fully closed — mark the bubble as final.
+          setTranscripts(prev =>
+            prev.map(t =>
+              t.id === segmentId ? { ...t, isFinal: isFinalStream } : t
+            )
+          );
         } catch (e) {
           console.error("Error reading transcript:", e);
         }
