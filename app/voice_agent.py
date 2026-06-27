@@ -220,10 +220,10 @@ async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type
 
     worker = PipelineWorker(
         pipeline,
+        observers=[transcription_observer],
         params=PipelineParams(
             enable_metrics=True,
             enable_usage_metrics=True,
-            observers=[transcription_observer],
         ),
     )
 
