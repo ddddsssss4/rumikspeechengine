@@ -18,6 +18,7 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -60,6 +61,70 @@ Rules:
 - Avoid emojis, bullet points, or other formatting that can't be spoken."""
 
 
+
+class TranscriptionObserver(BaseObserver):
+    """Observes pipeline frames and forwards transcription data to the LiveKit room.
+
+    Hooks into the pipecat observer system (the correct API for non-intrusive
+    frame inspection in pipecat 1.4.0) to:
+      - Forward STT TranscriptionFrame (user speech) via send_text
+      - Stream LLM token output via stream_text (open → write chunks → close)
+    """
+
+    def __init__(self, transport: LiveKitTransport):
+        super().__init__()
+        self._transport = transport
+        # Mutable dict so the writer reference survives across on_push_frame calls.
+        self._llm_state: dict = {"writer": None}
+
+    @property
+    def _room(self):
+        return self._transport._client.room
+
+    async def on_push_frame(self, data: FramePushed):
+        frame = data.frame
+        room = self._room
+        if not room:
+            return
+
+        # ── User speech ──────────────────────────────────────────────────────
+        if isinstance(frame, TranscriptionFrame):
+            logger.debug(f"[Observer] TranscriptionFrame: {frame.text!r}")
+            await room.local_participant.send_text(
+                frame.text,
+                topic="lk.transcription",
+                attributes={
+                    "lk.transcribed_track_id": frame.user_id,
+                    "lk.transcription_final": "true",
+                    "speaker": "user",
+                },
+            )
+
+        # ── Agent LLM streaming ──────────────────────────────────────────────
+        elif isinstance(frame, LLMFullResponseStartFrame):
+            # Open one persistent TextStreamWriter; all token chunks share the
+            # same stream ID so the client updates a single bubble incrementally.
+            writer = room.local_participant.stream_text(
+                topic="lk.transcription",
+                attributes={
+                    "lk.transcription_final": "false",
+                    "speaker": "agent",
+                },
+            )
+            self._llm_state["writer"] = writer
+            logger.debug("[Observer] Opened LLM text stream")
+
+        elif isinstance(frame, LLMTextFrame):
+            writer = self._llm_state.get("writer")
+            if writer is not None:
+                await writer.write(frame.text)
+
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            writer = self._llm_state.get("writer")
+            if writer is not None:
+                await writer.aclose()
+                self._llm_state["writer"] = None
+                logger.debug("[Observer] Closed LLM text stream")
 
 
 async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type: str = "kokoro"):
@@ -149,71 +214,18 @@ async def run_voice_agent(url: str, token: str, room_name: str, tts_service_type
         ]
     )
 
+    # Wire up the observer — this is the correct pipecat 1.4.0 API for
+    # intercepting frames without injecting processors into the pipeline.
+    transcription_observer = TranscriptionObserver(transport)
+
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
             enable_metrics=True,
             enable_usage_metrics=True,
+            observers=[transcription_observer],
         ),
     )
-
-    # Mutable state for the current LLM streaming response.
-    # Using a dict so nested async handlers can mutate without `nonlocal`.
-    _llm_state: dict = {"writer": None}
-
-    @worker.event_handler("on_frame")
-    async def handle_user_transcription(worker, frame):
-        """Forward STT output (user speech) to the LiveKit room as a text stream."""
-        if isinstance(frame, TranscriptionFrame):
-            room = transport._client.room
-            if room:
-                await room.local_participant.send_text(
-                    frame.text,
-                    topic="lk.transcription",
-                    attributes={
-                        "lk.transcribed_track_id": frame.user_id,
-                        "lk.transcription_final": "true",
-                        "speaker": "user",
-                    },
-                )
-
-    @worker.event_handler("on_frame")
-    async def handle_llm_streaming(worker, frame):
-        """Stream LLM token output to the LiveKit room in real-time.
-
-        Flow:
-          LLMFullResponseStartFrame → open a TextStreamWriter
-          LLMTextFrame              → write each token chunk into the open stream
-          LLMFullResponseEndFrame   → close the stream (client marks it final)
-        """
-        room = transport._client.room
-        if not room:
-            return
-
-        if isinstance(frame, LLMFullResponseStartFrame):
-            # Open a persistent stream; the same stream ID is used for all chunks
-            # so the client can update a single bubble incrementally.
-            writer = room.local_participant.stream_text(
-                topic="lk.transcription",
-                attributes={
-                    "lk.transcription_final": "false",
-                    "speaker": "agent",
-                },
-            )
-            _llm_state["writer"] = writer
-            logger.debug("[BOT] Opened LLM text stream to LiveKit room")
-
-        elif isinstance(frame, LLMTextFrame):
-            writer = _llm_state.get("writer")
-            if writer is not None:
-                await writer.write(frame.text)
-
-        elif isinstance(frame, LLMFullResponseEndFrame):
-            writer = _llm_state.get("writer")
-            if writer is not None:
-                await writer.aclose()
-                _llm_state["writer"] = None
-                logger.debug("[BOT] Closed LLM text stream")
 
 
     # Greet the user when they join and warm up Whisper
